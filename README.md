@@ -456,7 +456,209 @@ Consider adding code to handle the case when there is not enough available fcash
 
 _previewDeposit logic is not consistent with _mintInternal logic
 
-# Issue M-2: recover() using the standard transfer may not be able to retrieve some tokens 
+# Issue M-2: _isExternalLendingUnhealthy() using stale factors 
+
+Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/18 
+
+## Found by 
+bin2chen
+## Summary
+In `checkRebalance() -> _isExternalLendingUnhealthy() -> getTargetExternalLendingAmount(factors)`
+using stale `factors` will lead to inaccurate `targetAmount`, which in turn will cause `checkRebalance()` that should have been rebalance to not execute.
+
+## Vulnerability Detail
+
+rebalancingBot uses `checkRebalance()` to return the `currencyIds []` that need to be `rebalance`.
+
+call order : 
+`checkRebalance()` -> `_isExternalLendingUnhealthy()` -> `ExternalLending.getTargetExternalLendingAmount(factors)`
+
+```solidity
+    function _isExternalLendingUnhealthy(
+        uint16 currencyId,
+        IPrimeCashHoldingsOracle oracle,
+        PrimeRate memory pr
+    ) internal view returns (bool isExternalLendingUnhealthy, OracleData memory oracleData, uint256 targetAmount) {
+...
+
+@>      PrimeCashFactors memory factors = PrimeCashExchangeRate.getPrimeCashFactors(currencyId);
+        Token memory underlyingToken = TokenHandler.getUnderlyingToken(currencyId);
+
+        targetAmount = ExternalLending.getTargetExternalLendingAmount(
+            underlyingToken, factors, rebalancingTargetData, oracleData, pr
+        );
+```
+
+A very important logic is to get `targetAmount`. 
+The calculation of this value depends on `factors`. 
+But currently used is `PrimeCashFactors memory factors = PrimeCashExchangeRate.getPrimeCashFactors(currencyId);`. 
+This is not the latest. It has not been aggregated yet. 
+The correct one should be `( /* */,factors) = PrimeCashExchangeRate.getPrimeCashRateView();`.
+
+## Impact
+
+Due to the incorrect `targetAmount`, it may cause the `currencyId` that should have been re-executed `Rebalance` to not execute `rebalance`, increasing the risk of the protocol.
+
+## Code Snippet
+
+https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/contracts-v3/contracts/external/actions/TreasuryAction.sol#L414
+
+## Tool used
+
+Manual Review
+
+## Recommendation
+
+```diff
+    function _isExternalLendingUnhealthy(
+        uint16 currencyId,
+        IPrimeCashHoldingsOracle oracle,
+        PrimeRate memory pr
+    ) internal view returns (bool isExternalLendingUnhealthy, OracleData memory oracleData, uint256 targetAmount) {
+...
+
+-       PrimeCashFactors memory factors = PrimeCashExchangeRate.getPrimeCashFactors(currencyId);
++       ( /* */,PrimeCashFactors memory factors) = PrimeCashExchangeRate.getPrimeCashRateView();
+        Token memory underlyingToken = TokenHandler.getUnderlyingToken(currencyId);
+
+        targetAmount = ExternalLending.getTargetExternalLendingAmount(
+            underlyingToken, factors, rebalancingTargetData, oracleData, pr
+        );
+```
+
+
+
+## Discussion
+
+**sherlock-admin2**
+
+1 comment(s) were left on this issue during the judging contest.
+
+**takarez** commented:
+>  invalid because { not convince with the impact}
+
+
+
+**jeffywu**
+
+Prime factors are accrued immediately prior to the call:
+https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/contracts-v3/contracts/external/actions/TreasuryAction.sol#L319
+
+**bin2chen66**
+
+Escalate
+
+This issue will not affect the `rebalance()` method, as @jeffywu mentioned, `rebalance()` uses the latest factors.
+
+The problem I described affects `checkRebalance()`.
+According to the description
+> /// @notice View method used by Gelato to check if rebalancing can be executed and get the execution payload.
+>   function checkRebalance() external view override returns (bool canExec, bytes memory execPayload) {
+
+This method is for the bot. If it uses stale factors,
+the bot will think that the requirements are not yet met, and there is no chance to execute `rebalance()`.
+
+thank you.
+
+**sherlock-admin2**
+
+> Escalate
+> 
+> This issue will not affect the `rebalance()` method, as @jeffywu mentioned, `rebalance()` uses the latest factors.
+> 
+> The problem I described affects `checkRebalance()`.
+> According to the description
+> > /// @notice View method used by Gelato to check if rebalancing can be executed and get the execution payload.
+> >   function checkRebalance() external view override returns (bool canExec, bytes memory execPayload) {
+> 
+> This method is for the bot. If it uses stale factors,
+> the bot will think that the requirements are not yet met, and there is no chance to execute `rebalance()`.
+> 
+> thank you.
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**bin2chen66**
+
+different
+
+rebalance call order:
+`rebalance() -> _rebalanceCurrency() (will refresh factors first) -> _isExternalLendingUnhealthy()  will get latest factors`
+
+checkRebalance call order:
+`checkRebalance() -> _isExternalLendingUnhealthy() will get stale factors without refresh factors first` 
+
+
+then
+If `checkRebalance ()` is incorrect, `rebalance ()` may not have a chance to execute
+
+**jeffywu**
+
+Understood, this is a valid escalation.
+
+**nevillehuang**
+
+Since this could directly undermine frequency of rebalancing, agree it can be medium severity.
+
+**Evert0x**
+
+@bin2chen66 do I understand correctly that this only impacts the bot Notional is planning to use? 
+
+> This method is for the bot. If it uses stale factors,
+the bot will think that the requirements are not yet met, and there is no chance to execute rebalance().
+
+**bin2chen66**
+
+@Evert0x 
+Hi, Yes, as far as I know, the logic of the bot is very simple, `checkRebalance () ` is called periodically to get `execPayload`, such as execPayload=[1,2,3].
+if execPayload is not empty then the bot calls `rebalance (execPayload) `.
+Whether there are any other uses, needs to be confirmed by the sponsor.
+
+**Evert0x**
+
+@bin2chen66 my judgment will be to keep the issue invalid
+
+> Incorrect values in View functions are by default considered low.
+Exception: In case any of these incorrect values returned by the view functions are used as a part of a larger function which would result in loss of funds then it would be a valid medium/high depending on the impact.
+
+The part "used as a part of a larger function which would result in loss of funds" doesn't apply here as the bot is an off-chain component. 
+
+**bin2chen66**
+
+@Evert0x 
+I have an objection.
+This `rebalance()` depends entirely on `checkRebalance ()`.
+Why is it not part of this function?
+How do you chew words? please respect the facts
+
+**Evert0x**
+
+@bin2chen66 it's not part of the function as an off-chain component (the bot) is expected to consume the output of the view function and initiate a transaction to call `rebalance()`
+
+> Rebalancing Bot: is an off chain bot that detects when rebalancing can occur via checkRebalance and will rebalance those currencies accordingly.
+
+However, in the README it's clearly stated that the output of the view function is of importance to the functioning of the protocol. 
+
+Planning to accept escalation and make Medium.
+
+**Evert0x**
+
+Result:
+Medium
+Unique
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [bin2chen66](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/18/#issuecomment-1925689237): accepted
+
+# Issue M-3: recover() using the standard transfer may not be able to retrieve some tokens 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/19 
 
@@ -520,7 +722,92 @@ Manual Review
 
 @jeffywu @T-Woodward Were there any publicly available information stating USDT won't be use as a potential reward tokens at the point of the contest?
 
-# Issue M-3: Malicious users could block liquidation or perform DOS 
+**sherlock-admin2**
+
+> Escalate
+> Upon closer examination and in alignment with the [Sherlock rules](https://docs.sherlock.xyz/audits/judging/judging), it becomes evident that issues of this nature are categorically classified under informational issues. Furthermore, should we acknowledge the concerns surrounding `safeTransferOut` due to `USDT` peculiarities, it is imperative to underscore that, at most, this warrants a classification of low severity. This is primarily because the core functionality of the protocol remains unaffected and fully operational without getting bricked. 
+
+You've deleted an escalation for this issue.
+
+**AuditorPraise**
+
+> Escalate Upon closer examination and in alignment with the [Sherlock rules](https://docs.sherlock.xyz/audits/judging/judging), it becomes evident that issues of this nature are categorically classified under informational issues. Furthermore, should we acknowledge the concerns surrounding `safeTransferOut` due to `USDT` peculiarities, it is imperative to underscore that, at most, this warrants a classification of low severity. This is primarily because the core functionality of the protocol remains unaffected and fully operational without getting bricked.
+
+"Non-Standard tokens: Issues related to tokens with non-standard behaviors, such as [weird-tokens](https://github.com/d-xo/weird-erc20) are not considered valid by default unless these tokens are explicitly mentioned in the README"
+
+contest readme::
+```
+ Do you expect to use any of the following tokens with non-standard behaviour with the smart contracts?
+
+USDC and USDT are the primary examples.
+
+```
+
+**0xMR0**
+
+Escalate
+
+This is indeed a valid issue since the non-standard behavior of USDT is not acceptable to protocol team and it is explicitly mentioned in contest readme. 
+
+Further, comment by @AuditorPraise is correct and enough for the validation of this issue.
+
+
+
+**sherlock-admin2**
+
+> Escalate
+> 
+> This is indeed a valid issue since the non-standard behavior of USDT is not acceptable to protocol team and it is explicitly mentioned in contest readme. 
+> 
+> Further, comment by @AuditorPraise is correct and enough for the validation of this issue.
+> 
+> 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**Hash01011122**
+
+IMO In my opinion, the issue with `safeTransfer` has been widely recognized since 2022. Furthermore, it seems unfair to Watson who are discovering different vulnerabilities along with their attack paths. For instance, the issue of hardcoded `chainId` was previously classified as high severity. However, as seen in this [issue](https://github.com/sherlock-audit/2023-12-dodo-gsp-judging/issues/113), it was downgraded to low severity due to its widespread awareness and ease of discovery. 
+
+**As mentioned in sherlock [rules](https://docs.sherlock.xyz/audits/judging/judging):**
+**Low/Informational Issues:** While Sherlock acknowledges that it would be great to include & reward low-impact/informational issues, we strongly feel that Watsons should focus on finding the most critical vulnerabilities that will potentially cause millions of dollars of losses on mainnet. Sherlock understands that it could be missing out on some potential "value add" for protocol, but it's only because the real task of finding critical vulnerabilities requires 100% of the attention of Watsons. While low/informational issues are not rewarded individually if a Watson identifies an attack vector that combines multiple lows to cause significant loss/damage that would still be categorized as a valid medium/high.
+
+
+**AuditorPraise**
+
+> IMO In my opinion, the issue with `safeTransfer` has been widely recognized since 2022. 
+
+The issue isn't about `safeTransfer` but USDT.
+It's no one's fault that devs still make such mistakes... But that doesn't reduce the risks associated with making such a mistake. The impact it has had on protocols since 2022 till now remains the same. 
+
+Funds could be stuck 
+
+So why should it be an informational now?
+
+You can't compare chain Id issue to USDT being stuck in a contract as a result of the devs not using safeTransfer.
+
+**nevillehuang**
+
+@Hash01011122 You are circling too much around sherlock rules, and should look at it more factually instead of subjectively. In the contest details/code logic/documentation, no place does it mention that USDT cannot be a reward token, so I believe your argument is basically invalid. I believe no further discussions is required from my side, imo, this should remain medium severity.
+
+**Evert0x**
+
+Result:
+Medium
+Has Duplicates
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [0xMR0](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/19/#issuecomment-1925588123): accepted
+
+# Issue M-4: Malicious users could block liquidation or perform DOS 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/22 
 
@@ -624,7 +911,7 @@ I believe this is a duplicate of another issue.
 
 Acknowledged this is a very minor risk in the case this prevents a liquidation. However, I think the fix here is to put a try / catch around the reward block and it results in a loss of rewards for the blacklisted account rather than changing the entire UX of the process.
 
-# Issue M-4: Low precision is used when checking spot price deviation 
+# Issue M-5: Low precision is used when checking spot price deviation 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/32 
 
@@ -720,7 +1007,7 @@ require(1999999 <= 1000000, "Over Deviation Limit") => Revert
 
 
 
-# Issue M-5: The use of spot data when discounting is subjected to manipulation 
+# Issue M-6: The use of spot data when discounting is subjected to manipulation 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/36 
 
@@ -837,7 +1124,7 @@ I think the proper mitigation for this is what @jeffywu has suggested which is t
 
 @nevillehuang manipulation would cost a lot and there would be no chance to gain any profit. The attacker would lose money. The negative impact is that a regular user would also lose money. But given that an attacker can not profit from this, I recommend medium severity, not high severity.
 
-# Issue M-6: External lending can exceed the threshold 
+# Issue M-7: External lending can exceed the threshold 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/38 
 
@@ -958,7 +1245,7 @@ If 200 USDC is lent out, it will still not exceed the threshold of 200%, which d
 
 
 
-# Issue M-7: Unexpected behavior when calling certain ERC4626 functions 
+# Issue M-8: Unexpected behavior when calling certain ERC4626 functions 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/43 
 
@@ -1048,7 +1335,7 @@ I believe the proper solution here is to `revert` while the settlement rate is n
 
 @jeffywu Since it is impossible to know how it will impact other protocols for wrong integrations, I will maintain is medium severity.
 
-# Issue M-8: Rebalance will be delayed due to revert 
+# Issue M-9: Rebalance will be delayed due to revert 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/44 
 
@@ -1135,7 +1422,7 @@ function _rebalanceCurrency(uint16 currencyId, bool useCooldownCheck) private {
 
 
 
-# Issue M-9: Rebalance might be skipped even if the external lending is unhealthy 
+# Issue M-10: Rebalance might be skipped even if the external lending is unhealthy 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/46 
 
@@ -1246,7 +1533,7 @@ Would classify this as low severity because it just depends on what you take off
 
 However, I think it should be classified as low severity rather than disputed because the watson's suggestion for how to define offTargetPercentage is more intuitive.
 
-# Issue M-10: getOracleData() maxExternalDeposit not accurate 
+# Issue M-11: getOracleData() maxExternalDeposit not accurate 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/49 
 
@@ -1325,7 +1612,7 @@ Manual Review
 
 
 
-# Issue M-11: getTargetExternalLendingAmount() when targetUtilization == 0  no check whether enough externalUnderlyingAvailableForWithdraw 
+# Issue M-12: getTargetExternalLendingAmount() when targetUtilization == 0  no check whether enough externalUnderlyingAvailableForWithdraw 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/51 
 
@@ -1429,7 +1716,7 @@ Hmm, I guess this would be tripped if governance tries to set the target utiliza
 
 This issue would significantly hamper our ability to get out of a lending protocol quickly. A higher severity could be justified.
 
-# Issue M-12: getTargetExternalLendingAmount() targetAmount may far less than the correct value 
+# Issue M-13: getTargetExternalLendingAmount() targetAmount may far less than the correct value 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/52 
 
@@ -1540,102 +1827,6 @@ Only when `targetAmount > currentExternalUnderlyingLend` is a deposit needed, it
 
 
 
-# Issue M-13: Rounding issue on `previewMint` and `previewWithdraw` 
-
-Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/56 
-
-## Found by 
-bitsurfer
-## Summary
-
-Rounding issue on `previewMint` and `previewWithdraw` which doesn't follow EIP 4626's Security Considerations.
-
-## Vulnerability Detail
-
-Per EIP 4626's Security Considerations (https://eips.ethereum.org/EIPS/eip-4626)
-
-> Finally, EIP-4626 Vault implementers should be aware of the need for specific, opposing rounding directions across the different mutable and view methods, as it is considered most secure to favor the Vault itself during calculations over its users:
-
-> If (1) it’s calculating how many shares to issue to a user for a certain amount of the underlying tokens they provide or (2) it’s determining the amount of the underlying tokens to transfer to them for returning a certain amount of shares, it should round down.
-
-> If (1) it’s calculating the amount of shares a user has to supply to receive a given amount of the underlying tokens or (2) it’s calculating the amount of underlying tokens a user has to provide to receive a certain amount of shares, it should round up.
-
-Thus, the result of the `previewMint` and `previewWithdraw` should be rounded up.
-
-ERC4626 expects the result returned from `previewWithdraw` function to be rounded up. However, within the `previewWithdraw` function, it calls the `convertToShares` function. Meanwhile, the `convertToShares` function returned a rounded down value, thus `previewWithdraw` will return a rounded down value instead of round up value. Thus, this function does not behave as expected.
-
-The same case goes to `previewMint`.
-
-```js
-File: wfCashERC4626.sol
-46:     function convertToShares(uint256 assets) public view override returns (uint256 shares) {
-47:         uint256 supply = totalSupply();
-48:         if (supply == 0) {
-49:             // Scales assets by the value of a single unit of fCash
-50:             (/* */, uint256 unitfCashValue) = _getPresentCashValue(uint256(Constants.INTERNAL_TOKEN_PRECISION));
-51:             return (assets * uint256(Constants.INTERNAL_TOKEN_PRECISION)) / unitfCashValue;
-52:         }
-53: 
-54:         return (assets * supply) / totalAssets();
-55:     }
-...
-143:     function previewWithdraw(uint256 assets) public view override returns (uint256 shares) {
-144:         if (assets == 0) return 0;
-...
-153:         if (hasMatured()) {
-154:             shares = convertToShares(assets);
-155:         } else {
-156:             // If withdrawing non-matured assets, we sell them on the market (i.e. borrow)
-157:             (uint16 currencyId, uint40 maturity) = getDecodedID();
-158:             (shares, /* */, /* */) = NotionalV2.getfCashBorrowFromPrincipal(
-159:                 currencyId,
-160:                 assets,
-161:                 maturity,
-162:                 0,
-163:                 block.timestamp,
-164:                 true
-165:             );
-166:         }
-167:     }
-```
-
-## Impact
-
-Other protocols that integrate with wfCash might wrongly assume that the functions handle rounding as per ERC4626 expectation. Thus, it might cause some intergration problem in the future that can lead to wide range of issues for both parties.
-
-## Code Snippet
-
-https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/wrapped-fcash/contracts/wfCashERC4626.sol#L46-L55
-
-## Tool used
-
-Manual Review
-
-## Recommendation
-
-Ensure that the rounding of vault's functions behave as expected. 
-
-
-
-## Discussion
-
-**sherlock-admin2**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**takarez** commented:
->  invalid because { in  Q & A it says " Is the code/contract expected to comply with any EIPs? Are there specific assumptions around adhering to those EIPs that Watsons should be aware of?No"}
-
-
-
-**nevillehuang**
-
-@jeffywu Seems the above comments does apply and this could possibly be invalid. Was this an expected decision, I'm guessing its not because you confirmed the issue?
-
-**jeffywu**
-
-I think this is a valid medium, perhaps I should have answered the Q&A more properly since we should adhere to ERC4626, it is literally in the name of the contract.
-
 # Issue M-14: `wfCashERC4626` 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/58 
@@ -1728,6 +1919,265 @@ Agree that some sort of flag here would be appropriate to ensure that these toke
 **jeffywu**
 
 Fix will be that we do not allow tokens with fee on transfer to perform lend at zero.
+
+**gjaldon**
+
+Escalate
+
+> I think the issue is valid, although the contention that the vault becomes insolvent is not completely true. When lending at 0% interest the vault also accrues variable rate interest, which may or may not accrue sufficient value to recover the loss from the transfer fee.
+
+I think this is a High because the vault still stays insolvent even when the vault accrues variable rate interest. This is because any variable rate interest accrual is only applied to the prime cash's exchange rate (like a cToken.) 
+
+The issue here is that the total `wfCash` minted is supposed to be 1:1 with the vault's primeCash balance in Notional. However, there is more `wfCash` minted than the vault's prime cash balance in Notional because the Vault's `wfCash` minting does not subtract the transfer fees when computing for the amount to mint, which leads to the discrepancy.
+
+Any variable interest rate accrual will not increase the prime cash balance of the Vault because it is non-rebasing. That means that the Vault's prime cash balance in Notional will not increase due to accrual and it will remain less than the Vault's total `wfCash` minted and the vault will remain insolvent.
+
+For example:
+Vault `wfCash` supply - 1000
+Vault's prime cash balance in Notional - 975 (1000 - 2.5% transfer fee)
+Variable interest rate accrual - increases the exchange rate from, for example, 110% to 115%
+
+Total `wfCash` that can be redeemed is still capped at 975 even with the variable interest rate accrual. Vault remains insolvent because not all shares can be redeemed.
+
+**sherlock-admin2**
+
+> Escalate
+> 
+> > I think the issue is valid, although the contention that the vault becomes insolvent is not completely true. When lending at 0% interest the vault also accrues variable rate interest, which may or may not accrue sufficient value to recover the loss from the transfer fee.
+> 
+> I think this is a High because the vault still stays insolvent even when the vault accrues variable rate interest. This is because any variable rate interest accrual is only applied to the prime cash's exchange rate (like a cToken.) 
+> 
+> The issue here is that the total `wfCash` minted is supposed to be 1:1 with the vault's primeCash balance in Notional. However, there is more `wfCash` minted than the vault's prime cash balance in Notional because the Vault's `wfCash` minting does not subtract the transfer fees when computing for the amount to mint, which leads to the discrepancy.
+> 
+> Any variable interest rate accrual will not increase the prime cash balance of the Vault because it is non-rebasing. That means that the Vault's prime cash balance in Notional will not increase due to accrual and it will remain less than the Vault's total `wfCash` minted and the vault will remain insolvent.
+> 
+> For example:
+> Vault `wfCash` supply - 1000
+> Vault's prime cash balance in Notional - 975 (1000 - 2.5% transfer fee)
+> Variable interest rate accrual - increases the exchange rate from, for example, 110% to 115%
+> 
+> Total `wfCash` that can be redeemed is still capped at 975 even with the variable interest rate accrual. Vault remains insolvent because not all shares can be redeemed.
+
+The escalation could not be created because you are not exceeding the escalation threshold.
+
+You can view the required number of additional valid issues/judging contest payouts in your Profile page,
+in the [Sherlock webapp](https://app.sherlock.xyz/audits/).
+
+
+**JeffCX**
+
+Escalate
+
+> I think the issue is valid, although the contention that the vault becomes insolvent is not completely true. When lending at 0% interest the vault also accrues variable rate interest, which may or may not accrue sufficient value to recover the loss from the transfer fee.
+
+I think this is a High because the vault still stays insolvent even when the vault accrues variable rate interest. This is because any variable rate interest accrual is only applied to the prime cash's exchange rate (like a cToken.)
+
+The issue here is that the total wfCash minted is supposed to be 1:1 with the vault's primeCash balance in Notional. However, there is more wfCash minted than the vault's prime cash balance in Notional because the Vault's wfCash minting does not subtract the transfer fees when computing for the amount to mint, which leads to the discrepancy.
+
+Any variable interest rate accrual will not increase the prime cash balance of the Vault because it is non-rebasing. That means that the Vault's prime cash balance in Notional will not increase due to accrual and it will remain less than the Vault's total wfCash minted and the vault will remain insolvent.
+
+For example:
+Vault wfCash supply - 1000
+Vault's prime cash balance in Notional - 975 (1000 - 2.5% transfer fee)
+Variable interest rate accrual - increases the exchange rate from, for example, 110% to 115%
+
+Total wfCash that can be redeemed is still capped at 975 even with the variable interest rate accrual. Vault remains insolvent because not all shares can be redeemed.
+
+
+**sherlock-admin2**
+
+> Escalate
+> 
+> > I think the issue is valid, although the contention that the vault becomes insolvent is not completely true. When lending at 0% interest the vault also accrues variable rate interest, which may or may not accrue sufficient value to recover the loss from the transfer fee.
+> 
+> I think this is a High because the vault still stays insolvent even when the vault accrues variable rate interest. This is because any variable rate interest accrual is only applied to the prime cash's exchange rate (like a cToken.)
+> 
+> The issue here is that the total wfCash minted is supposed to be 1:1 with the vault's primeCash balance in Notional. However, there is more wfCash minted than the vault's prime cash balance in Notional because the Vault's wfCash minting does not subtract the transfer fees when computing for the amount to mint, which leads to the discrepancy.
+> 
+> Any variable interest rate accrual will not increase the prime cash balance of the Vault because it is non-rebasing. That means that the Vault's prime cash balance in Notional will not increase due to accrual and it will remain less than the Vault's total wfCash minted and the vault will remain insolvent.
+> 
+> For example:
+> Vault wfCash supply - 1000
+> Vault's prime cash balance in Notional - 975 (1000 - 2.5% transfer fee)
+> Variable interest rate accrual - increases the exchange rate from, for example, 110% to 115%
+> 
+> Total wfCash that can be redeemed is still capped at 975 even with the variable interest rate accrual. Vault remains insolvent because not all shares can be redeemed.
+> 
+
+You've created a valid escalation!
+
+To remove the escalation from consideration: Delete your comment.
+
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
+
+**jeffywu**
+
+I won't opine the severity of the issue but I will say the understanding of the prime cash balance is not entirely correct in the escalation comment:
+
+fCash is denominated in underlying (i.e. 1 fETH = 1 ETH at maturity) while prime cash is a non-rebasing token with a monotonically increasing exchange rate to ETH. If we mint 1 fETH "share" while lending at zero interest but only deposit 0.975 ETH worth of pCash prior to maturity...it would be appropriate to say that the vault is insolvent at this moment in time.
+
+However, if the 0.975 ETH worth of pCash accrues interest over X days and is now worth 1 ETH and no other deposits / withdraws occur, the vault is no longer insolvent. The rebasing / non-rebasing nature of pCash does not affect the solvency issue, the vault has full access to the underlying value of the pCash to accommodate withdraws.
+
+**gjaldon**
+
+@jeffywu isn't it that a positive cash balance is non-rebasing and any interest accruals do not change the account's cash balance? If I'm not mistaken, any interest accruals only change the prime cash factors:
+ref: https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/contracts-v3/contracts/internal/pCash/PrimeCashExchangeRate.sol#L589-L613
+```solidity
+    function getPrimeCashRateStateful(
+        uint16 currencyId,
+        uint256 blockTime
+    ) internal returns (PrimeRate memory rate) {
+        PrimeCashFactors memory factors = getPrimeCashFactors(currencyId);
+
+        // Only accrue if the block time has increased
+        if (factors.lastAccrueTime < blockTime) {
+            uint256 primeSupplyToReserve;
+            uint256 currentUnderlyingValue = getTotalUnderlyingStateful(currencyId);
+            (factors, primeSupplyToReserve) = _updatePrimeCashScalars(
+                currencyId, factors, currentUnderlyingValue, blockTime
+            );
+            _setPrimeCashFactorsOnAccrue(currencyId, primeSupplyToReserve, factors);
+        } else {
+            require(factors.lastAccrueTime == blockTime); // dev: revert invalid blocktime
+        }
+
+        rate = PrimeRate({
+            supplyFactor: factors.supplyScalar.mul(factors.underlyingScalar).toInt(),
+            debtFactor: factors.debtScalar.mul(factors.underlyingScalar).toInt(),
+            oracleSupplyRate: factors.oracleSupplyRate
+        });
+    }
+```
+
+`_updatePrimeCashScalars()` computes the interest accrual and updates the factors. `PrimeRate.supplyFactor` is the exchange rate that's used to compute for the total ETH that can be withdrawn.
+
+Given a Vault that had deposited 1000 tokens into pCash and the following are true:
+
+Vault has 1000 wfCash total supply
+Vault has pCash balance of 975 in Notional (1000 - 2.5% transfer fee)
+PR.supplyFactor is 100%
+
+Let's say the PR.supplyFactor has increased to 120% due to interest accrual. When the Vault withdraws, it calls `AccountAction.withdraw()` which also ends up calling [`BalanceHandler._finalize()`](https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/contracts-v3/contracts/internal/balances/BalanceHandler.sol#L164-L204). 
+
+```solidity
+        transferAmountExternal = TokenHandler.withdrawPrimeCash(
+            account,
+            receiver,
+            balanceState.currencyId,
+            balanceState.primeCashWithdraw,
+            balanceState.primeRate,
+            withdrawWrapped // if true, withdraws ETH as WETH
+        );
+
+        {
+            // No changes to total cash after this point
+            int256 totalCashChange = balanceState.netCashChange.add(balanceState.primeCashWithdraw);
+           
+            if (
+                checkAllowPrimeBorrow &&
+                totalCashChange < 0 &&
+                balanceState.storedCashBalance.add(totalCashChange) < 0
+            ) {
+                // ... snip ...
+                require(accountContext.allowPrimeBorrow, "No Prime Borrow");
+                checkDebtCap = true;
+            }
+
+            if (totalCashChange != 0) {
+                balanceState.storedCashBalance = balanceState.storedCashBalance.add(totalCashChange);
+                mustUpdate = true;
+            }
+        }
+```
+
+In `BalanceHandler.finalize()`, `balanceState.primeCashWithdraw` is the amount being withdrawn, which is -1000 (all the wfCash supply.) It is negative since withdrawal amounts are turned negative to represent decrease in cash balance. `totalCashChange` will be equal to `balanceState.primeCashWithdraw`, which is -1000. `balanceState.storedCashBalance` will be the Vault's cash  balance of 975. Adding both will result in -25 and will lead to the `"No Prime Borrow"` revert since there is not enough cash balance for the withdrawal and prime borrowing is not enabled for the vault.
+
+In [`TokenHandler.withdrawPrimeCash()`](https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/contracts-v3/contracts/internal/balances/TokenHandler.sol#L236-L240) is where the exchange rate is applied so that we get the principal plus the interest accrual. 
+
+```solidity
+// TokenHandler.withdrawPrimeCash()
+
+    Token memory underlying = getUnderlyingToken(currencyId);
+    netTransferExternal = convertToExternal(
+        underlying, 
+        primeRate.convertToUnderlying(primeCashToWithdraw) 
+    );
+```
+
+[`primeRate.convertToUnderlying`](https://github.com/sherlock-audit/2023-12-notional-update-5/blob/main/contracts-v3/contracts/internal/pCash/PrimeRateLib.sol#L300-L306) converts the prime cash value (principal) into its accrued value (principal + interest accrual.) 
+
+```solidity
+    function convertToUnderlying(
+        PrimeRate memory pr,
+        int256 primeCashBalance
+    ) internal pure returns (int256) {
+        int256 result = primeCashBalance.mul(pr.supplyFactor).div(Constants.DOUBLE_SCALAR_PRECISION);
+        return primeCashBalance < 0 ? SafeInt256.min(result, -1) : result;
+    }
+```
+
+We see above how `primeRate.supplyFactor`, which is an exchange rate that represents interest accrual for lending, is multiplied to the prime cash balance. 
+
+I think the details above show that the  prime cash balance (`balanceState.storedCashBalance`) does not increase due to interest accrual. With the example above, it will stay at 975 even when interest accrues. This is because interest accruals are only applied to the Prime Cash factors and do not modify every account's cash balances, which would be expensive.
+
+Am I missing anything @jeffywu?
+
+**jeffywu**
+
+Yeah, but 0.975 pETH units can be worth 1 ETH which is what is required for the vault to be solvent. If you call withdraw and expect to get 1 ETH, the vault will be able to satisfy the request and therefore it would be solvent.
+
+**gjaldon**
+
+I see. I think the user would expect interest accrual to make their 1 ETH larger than 1 ETH. Also, even though 0.975 pETH can become 1 ETH eventually due to variable interest accrual, there is still the 0.025 pETH that can not be redeemed. A Vault is insolvent when all of its shares can not be redeemed. When there are multiple depositors, this can lead to situations where the last depositor to withdraw will be unable to withdraw any assets.
+
+**jeffywu**
+
+Well the user could only expect up to 1 ETH because they have a claim on 1
+fETH. They are not lending variable they are lending fixed
+
+On Mon, Feb 5, 2024 at 4:06 PM G ***@***.***> wrote:
+
+> I see. I think the user would expect interest accrual to make their 1 ETH
+> larger than 1 ETH. Also, even though 0.975 pETH can become 1 ETH eventually
+> due to variable interest accrual, there is still the 0.025 pETH that can
+> not be redeemed. A Vault is insolvent when all of its shares can not be
+> redeemed. When there are multiple depositors, this can lead to situations
+> where the last depositor to withdraw will be unable to withdraw any assets.
+>
+> —
+> Reply to this email directly, view it on GitHub
+> <https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/58#issuecomment-1928538045>,
+> or unsubscribe
+> <https://github.com/notifications/unsubscribe-auth/AAHOUGSOW62TRY3ZX3MLMDTYSFXX5AVCNFSM6AAAAABCAQ65JCVHI2DSMVQWIX3LMV43OSLTON2WKQ3PNVWWK3TUHMYTSMRYGUZTQMBUGU>
+> .
+> You are receiving this because you were mentioned.Message ID:
+> <sherlock-audit/2023-12-notional-update-5-judging/issues/58/1928538045@
+> github.com>
+>
+
+
+**gjaldon**
+
+Fair point. I think you are looking at it from the perspective of calling `Vault.withdraw()` where the user sets the amount of assets to be withdrawn. When using `Vault.redeem()`, the user sets the amount of shares to be redeemed. In this case, the amount to be redeemed would be the total shares of 1000. This is what I mean by insolvency, since only up to 975 shares can be redeemed and not all the shares are redeemable.
+
+Thank you for the time and the discussion @jeffywu. I appreciate it and will do my best to carry over all my learnings to future Notional contests. 
+
+**Evert0x**
+
+Planning to reject escalation and keep issue state as is @gjaldon 
+
+**Evert0x**
+
+Result:
+Medium
+Unique
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [JEFFCX](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/58/#issuecomment-1926889075): rejected
 
 # Issue M-15: `ExternalLending` 
 
