@@ -138,6 +138,14 @@ add a check inside `_mintInternal`
 
 
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/16.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue H-2: Residual ETH will not be sent back to users during the minting of wfCash 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/25 
@@ -252,6 +260,14 @@ If the underlying is ETH, measure the Native ETH balance before and after the `d
 >  valid because { This is a valid findings as the watson was able to explained how excess ETH will be stuck and not sent back to user as intended; hight findings}
 
 
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/20.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue H-3: Residual ETH not sent back when `batchBalanceAndTradeAction` executed 
 
@@ -418,6 +434,14 @@ We explicitly ask for the residual cash `postTradeCash - preTradeCash` and then 
 
 Ok, upon further clarification I see where the issue stems from.
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/20.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-1: Wfcash deposit might give incorrect amount of shares (wfcash) in some cases. 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/14 
@@ -455,6 +479,14 @@ Consider adding code to handle the case when there is not enough available fcash
 **T-Woodward**
 
 _previewDeposit logic is not consistent with _mintInternal logic
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/18.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-2: _isExternalLendingUnhealthy() using stale factors 
 
@@ -658,6 +690,14 @@ Escalations have been resolved successfully!
 Escalation status:
 - [bin2chen66](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/18/#issuecomment-1925689237): accepted
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/33.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-3: recover() using the standard transfer may not be able to retrieve some tokens 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/19 
@@ -807,6 +847,14 @@ Escalations have been resolved successfully!
 Escalation status:
 - [0xMR0](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/19/#issuecomment-1925588123): accepted
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/28.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-4: Malicious users could block liquidation or perform DOS 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/22 
@@ -911,6 +959,14 @@ I believe this is a duplicate of another issue.
 
 Acknowledged this is a very minor risk in the case this prevents a liquidation. However, I think the fix here is to put a try / catch around the reward block and it results in a loss of rewards for the blacklisted account rather than changing the entire UX of the process.
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/30.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-5: Low precision is used when checking spot price deviation 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/32 
@@ -1007,6 +1063,14 @@ require(1999999 <= 1000000, "Over Deviation Limit") => Revert
 
 
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/34.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-6: The use of spot data when discounting is subjected to manipulation 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/36 
@@ -1075,7 +1139,7 @@ Bob deposits a specific amount of prime cash (either by its own funds or flash-l
 
 $y > x$. So Bob received $y - x$ more cash compared to if he had not performed the manipulation. Since this is a zero-sum, Bob's gain is the protocol loss.
 
-![IR](https://github.com/sherlock-audit/2023-12-notional-update-5-xiaoming9090/assets/102820284/994ebd24-1699-40b4-aaec-3d7d3f6fd11a)
+![IR](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/assets/1048185/0c617fe4-a2e8-421c-9da8-51e446afc7c6)
 
 ## Impact
 
@@ -1123,6 +1187,14 @@ I think the proper mitigation for this is what @jeffywu has suggested which is t
 **T-Woodward**
 
 @nevillehuang manipulation would cost a lot and there would be no chance to gain any profit. The attacker would lose money. The negative impact is that a regular user would also lose money. But given that an attacker can not profit from this, I recommend medium severity, not high severity.
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/14.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-7: External lending can exceed the threshold 
 
@@ -1245,6 +1317,14 @@ If 200 USDC is lent out, it will still not exceed the threshold of 200%, which d
 
 
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/27.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-8: Unexpected behavior when calling certain ERC4626 functions 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/43 
@@ -1335,6 +1415,14 @@ I believe the proper solution here is to `revert` while the settlement rate is n
 
 @jeffywu Since it is impossible to know how it will impact other protocols for wrong integrations, I will maintain is medium severity.
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/13.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-9: Rebalance will be delayed due to revert 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/44 
@@ -1421,6 +1509,14 @@ function _rebalanceCurrency(uint16 currencyId, bool useCooldownCheck) private {
 >  valid because { valid medium findings due to the occurrence}
 
 
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/32.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-10: Rebalance might be skipped even if the external lending is unhealthy 
 
@@ -1533,6 +1629,14 @@ Would classify this as low severity because it just depends on what you take off
 
 However, I think it should be classified as low severity rather than disputed because the watson's suggestion for how to define offTargetPercentage is more intuitive.
 
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/29.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
+
 # Issue M-11: getOracleData() maxExternalDeposit not accurate 
 
 Source: https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/49 
@@ -1611,6 +1715,14 @@ Manual Review
 >  valid because { valid }
 
 
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/31.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-12: getTargetExternalLendingAmount() when targetUtilization == 0  no check whether enough externalUnderlyingAvailableForWithdraw 
 
@@ -1715,6 +1827,14 @@ The subsequent logic of the method can handle `targetUtilization == 0` normally 
 Hmm, I guess this would be tripped if governance tries to set the target utilization to zero. Likely, this occurs if we want to pull funds very quickly from an external lending protocol. The check is important to ensure that we pull as much funds as we can without reverting.
 
 This issue would significantly hamper our ability to get out of a lending protocol quickly. A higher severity could be justified.
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/26.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-13: getTargetExternalLendingAmount() targetAmount may far less than the correct value 
 
@@ -1826,6 +1946,14 @@ Only when `targetAmount > currentExternalUnderlyingLend` is a deposit needed, it
 >  valid because { This is valid medium ; watson explained how an incorrect value can be returned}
 
 
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/contracts-v3/pull/25.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-14: `wfCashERC4626` 
 
@@ -2178,6 +2306,14 @@ Escalations have been resolved successfully!
 
 Escalation status:
 - [JEFFCX](https://github.com/sherlock-audit/2023-12-notional-update-5-judging/issues/58/#issuecomment-1926889075): rejected
+
+**sherlock-admin**
+
+The protocol team fixed this issue in PR/commit https://github.com/notional-finance/wrapped-fcash/pull/17.
+
+**sherlock-admin**
+
+The Lead Senior Watson signed-off on the fix.
 
 # Issue M-15: `ExternalLending` 
 
